@@ -15,7 +15,7 @@ class ImageROI(ROI):
 	def __init__(self, pos, size, centered=False, simple=False, sideScalers=False, **args):
 		if simple:
 			print "simple image roi"
-			ROI.__init__(self, pos, size, movable=False, **args)
+			ROI.__init__(self, pos, size, removable=False, movable=False, **args)
 			return
 		ROI.__init__(self, pos, size, **args)
 		if centered:
