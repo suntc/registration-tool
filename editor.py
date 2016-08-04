@@ -29,18 +29,29 @@ arr += np.random.normal(size=(100,100))
 
 ## load image
 w0 = w.addLayout(row=0,col=1)
-imbar = ImageBar(w0, [arr, arr])
+#imbar = ImageBar(w0, [arr, arr])
+imbar = ImageBar(w0, path=['./load_specimen.png', './load_histo.png'])
 
 ## image panel
 w1 = w.addLayout(row=0, col=2)
-impanel = ImagePanel(w1, [arr, arr, arr, arr, arr])
+#impanel = ImagePanel(w1, [arr, arr, arr, arr, arr])
+impanel = ImagePanel(w1)
 
 ## create  control widget
 cwid = ControlWidget()
 
+## connect signal
+imbar.sigImageLoaded.connect(impanel.image_loaded)
+cwid.sigAutoRequested.connect(imbar.auto_requested)
+cwid.sigManualRequested.connect(imbar.manual_requested)
+cwid.ui.btn_list['reg'].clicked.connect(imbar.align_image_requested)
+cwid.ui.shearCheck.stateChanged.connect(imbar.shear_state_changed)
+imbar.sigTransformRequested.connect(impanel.transform_requested)
+imbar.sigAffineRequested.connect(impanel.affine_requested)
+
 ## manage layout
 win = QtGui.QMainWindow()
-win.setWindowTitle('pyqtgraph example: Flowchart')
+win.setWindowTitle('Image Editor')
 cw = pg.LayoutWidget()
 win.setCentralWidget(cw)
 cw.addWidget(cwid)

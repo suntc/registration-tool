@@ -68,10 +68,16 @@ class ControlWidget(QtGui.QWidget):
 	def manualClicked(self):
 		self.ui.btn_list['manual'].setChecked(True)
 		self.ui.btn_list['auto'].setChecked(False)
+		self.ui.shearCheck.setChecked(False)
+		self.ui.shearCheck.setCheckable(False)
+		self.sigManualRequested.emit(self)
 
 	def autoClicked(self):
 		self.ui.btn_list['auto'].setChecked(True)
 		self.ui.btn_list['manual'].setChecked(False)
+		self.ui.shearCheck.setCheckable(True)
+		self.ui.shearCheck.setChecked(True)
+		self.sigAutoRequested.emit(self)
 
 	def loadClicked(self):
 		newFile = self.loadFile()
@@ -161,7 +167,7 @@ class ControlWidget(QtGui.QWidget):
 		state['outputNode'] = self.outputNode.saveState()
 		
 		return state
-
+'''
 app = QtGui.QApplication([])
 win = QtGui.QMainWindow()
 win.setWindowTitle('pyqtgraph example')
@@ -171,6 +177,7 @@ layout = QtGui.QGridLayout()
 #cw.setLayout(layout)
 
 win.show()
+'''
 
 if __name__ == '__main__':
 	import sys

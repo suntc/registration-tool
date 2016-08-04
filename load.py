@@ -15,7 +15,7 @@ class ImageFileLoader(object):
 		#im = Image.open(path)
 		#im.show()
 		#np.asarray(Image.open(path))
-		return np.asarray(Image.open(path))
+		return np.asarray(Image.open(path), dtype='f')
 	
 	def save(self, path, arr):
 		pass
