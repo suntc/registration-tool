@@ -15,11 +15,15 @@ class ImageROI(ROI):
 	sigSendBackRequested = QtCore.Signal(object)
 	sigAddVertexRequested = QtCore.Signal(object)
 	sigLoadImageRequested = QtCore.Signal(object)
+	sigDragTriggered = QtCore.Signal(object)
+	sigTrackCompleted = QtCore.Signal(object)
 
 	def __init__(self, pos, size, centered=False, simple=False, sideScalers=False, movable=True, rotatable=True, sendBack=True, alpha=False, **args):
 		self.sendBack = sendBack
 		self.image_array = None
 		self.image_item = None
+		self.isPaint = True
+		self.isMoving = False
 		if simple:
 			print "simple image roi"
 			ROI.__init__(self, pos, size, removable=False, movable=movable, **args)
@@ -96,6 +100,31 @@ class ImageROI(ROI):
 			ev.accept()
 			self.sigAddVertexRequested.emit((self, ev.pos()))
 		ROI.mouseClickEvent(self, ev)
+
+	def mouseDragEvent(self, ev):
+		track = []
+		if ev.button() != QtCore.Qt.LeftButton:
+			ev.ignore()
+			return
+		else:
+			if self.isPaint:
+				if ev.isStart():
+					print "start"
+					self.isMoving = True
+				ev.accept()
+				print ev.pos()
+				track.append(ev.pos())
+				self.sigDragTriggered.emit(ev.pos())
+			else:
+				ROI.mouseDragEvent(self, ev)
+		if ev.isFinish():
+			if self.isMoving == True:
+				print "end"
+				track.append(ev.pos())
+				self.sigDragTriggered.emit(ev.pos())
+				self.sigTrackCompleted.emit(self)
+			self.isMoving = False
+
 	
 
 	def load_imgae_clicked(self, item):

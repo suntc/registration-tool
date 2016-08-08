@@ -10,6 +10,8 @@ from math import asin, pi
 from uiImageItem import UiImageItem
 from imageROI import ImageROI
 from load import ImageFileLoader
+from buttonArea import ButtonArea
+from pathPlotItem import PathPlotItem
 import align
 
 class VertexList(object):
@@ -79,12 +81,12 @@ class VertexList(object):
 	'''
 
 class InImageCell(object):
-	def __init__(self, v, image, scatter, open_action=None):
+	def __init__(self, v, image, scatter, open_action=None, button_area=None):
 		self.v = v
 		self.image = image
 		self.open_action = open_action
 		self.scatter = scatter
-		self.buttons = {}
+		self.button_area = button_area
 		
 
 #class ImageBar(QtGui.QWidget):
@@ -96,8 +98,11 @@ class ImageBar(pg.GraphicsWidget):
 		3. allowing pointing
 		4. performing icp algorithm and provide signal to inform imagePanel
 		5. doing array transformation to provide right array to imagePanel for displaying
-
+		6. provide button for interaction: choose mode, save project, lock aspect, delete point
 		for icp, the bottom image is used as model
+
+		notice, corrdinate of ROI and scatter plot are different
+											(x, y)  -->  (y, -x)
 	"""
 	sigImageLoaded = QtCore.Signal(object)
 	sigTransformRequested = QtCore.Signal(object)
@@ -109,7 +114,7 @@ class ImageBar(pg.GraphicsWidget):
 		## file related
 		self.loader = ImageFileLoader()
 		self.default_path = "./"
-		## module states
+		## module state
 		self.IDLE = 0
 		self.WAITFORIMAGE = 1
 		self.ADDINGVERTEX = 2
@@ -120,6 +125,8 @@ class ImageBar(pg.GraphicsWidget):
 			'icp'	: self.MANUAL,
 			'shear'	: False,
 			'ready'	: {},
+			'locked' : [False, False],
+			'delete' : [False, False],
 		}
 		self.cells = {}
 		## max number of images can be loaded
@@ -129,24 +136,28 @@ class ImageBar(pg.GraphicsWidget):
 		## create empty boxes to hold images
 		for i in range(self.max_img):
 			## add scatter plot item
-			v = self.w.addViewBox(row=i, col=0, lockAspect=True, enableMouse=True)
-			scatter = pg.ScatterPlotItem(size=10, pen=pg.mkPen('w'), pxMode=True, brush=pg.intColor(100, 100))
+			v = self.w.addViewBox(row=i*2, col=1, lockAspect=True, enableMouse=True)
+			## button area
+			ba = ButtonArea()
+			self.w.addItem(ba, row=i*2+1, col=1)
+			self.w.layout.setRowFixedHeight(i*2+1, 10.)
+			scatter = pg.ScatterPlotItem(size=10, pen=pg.mkPen('w'), pxMode=True, brush=pg.intColor(100, 100), parent=v)
 			scatter.setZValue(20)
 			v.addItem(scatter)
-			self.cells.setdefault(i, InImageCell(v, None, scatter))
+			pathplot = PathPlotItem()
+			v.addItem(pathplot)
+			self.cells.setdefault(i, InImageCell(v, None, scatter, button_area=ba))
 			#spots = [{'pos': [1000,-1000], 'data': 1},{'pos': [1200,-600], 'data': 1}]
 			#scatter.addPoints(spots)
 			#v = self.w.addViewBox(row=i, col=0, lockAspect=True, enableMouse=False)
 			#self.cells.setdefault(i, InImageCell(v, UiImageItem()))
+			##  signal and slot
+			#scatter.sigHoverEvent.connect(self.delete_hover)
+			scatter.sigClicked.connect(self.delete_point_clicked)
+			ba.buttons['lock'].clicked.connect(self.lock_clicked)
+			ba.buttons['del'].clicked.connect(self.delete_clicked)
 		## setup menus
 		self.set_menu()
-
-		## add buttons below
-		## four default pixmap: 'auto', 'ctrl', 'default', 'lock'
-		autoBtn = pg.ButtonItem(pg.pixmaps.getPixmap('lock'), 14, self.cells[0].v)
-		autoBtn.setPos(0, 0)
-		self.cells[0].buttons['auto'] = autoBtn
-		self.cells[0].v.sigResized.connect(self.vb_resized)
 
 		if images:
 			for i, item in enumerate(images):
@@ -213,7 +224,7 @@ class ImageBar(pg.GraphicsWidget):
 		'''
 		## use ROI instead of imageItem
 		shape = arr.shape
-		img = ImageROI([0,0], [shape[0],shape[1]], movable=False, rotatable=False, sendBack=False)
+		img = ImageROI([0,0], [shape[0],shape[1]], movable=False, rotatable=False, sendBack=False, parent=self.cells[id].v)
 		img.set_image(arr)
 		self.cells[id].image = img
 		self.cells[id].v.addItem(img)
@@ -233,13 +244,17 @@ class ImageBar(pg.GraphicsWidget):
 		
 		self.state['ready'][id] = True
 
-	def draw_point(self, image_item, pos, symbol=None):
+	def draw_point(self, image_item, pos, id=None, symbol=None):
 		## need to transform the coordinate
+		## id is added later; it seems a little ugly
 		if self.state['icp'] == self.AUTO:
 			if symbol == None:
 				spots = [{'pos': [pos[1],-pos[0]], 'data': 1, 'symbol' : 'o', 'size' : 10}]
 			else:
 				spots = [{'pos': [pos[1],-pos[0]], 'data': 1, 'symbol' : symbol, 'size' : 10}]
+			if id is not None:
+				self.cells[id].scatter.addPoints(spots)
+				return id
 			for k in self.cells:
 				if self.cells[k].image == image_item:
 					if k not in self.state['ready']:
@@ -250,6 +265,14 @@ class ImageBar(pg.GraphicsWidget):
 
 		elif self.state['icp'] == self.MANUAL:
 			spots = [{'pos': [pos[1],-pos[0]], 'data': 1, 'size' : 15}]
+			if id is not None:
+				if symbol == None:
+					spots[0]['symbol'] = str(len(self.vl.vlist[k]) + 1)
+				else:
+					spots[0]['symbol'] = symbol
+				## add vertex to screen
+				self.cells[k].scatter.addPoints(spots)
+				return id
 			for k in self.cells:
 				if self.cells[k].image == image_item:
 					if k not in self.state['ready']:
@@ -266,6 +289,13 @@ class ImageBar(pg.GraphicsWidget):
 	def add_point(self, (image_item, pos)):
 		## slot method for signal(addVertexRequsted)
 		print "add point ", pos
+		for k in self.cells:
+			if self.cells[k].image == image_item:
+				if k not in self.state['ready']:
+					return
+				break
+		if self.state['delete'][k] == True:
+			return
 		id = self.draw_point(image_item, pos)
 		if id is not None:
 			## add vertex to vertex list
@@ -299,14 +329,35 @@ class ImageBar(pg.GraphicsWidget):
 				self.cells[k].scatter.addPoints([])
 			self.vl.vlist = {0 : [], 1 : []}
 
-	def redraw_point(self):
-		self.clear_screen_point()
+	def redraw_point(self, id=None):
+		## rewrite for efficiency: draw only once
+		if id == None:
+			self.clear_screen_point()
+			for key in self.vl.vlist:
+				spots = []
+				for i, pos in enumerate(self.vl.vlist[key]):
+					if self.state['icp'] == self.MANUAL:
+						spots.append({'pos':[pos[1],-pos[0]], 'data':1, 'size':15, 'symbol':str(i+1)})
+					elif self.state['icp'] == self.AUTO:
+						spots.append({'pos':[pos[1],-pos[0]], 'data':1, 'size':10, 'symbol':'o'})
+				self.cells[key].scatter.addPoints(spots)
+		else:
+			self.clear_screen_point(id=id)
+			spots = []
+			for i, pos in enumerate(self.vl.vlist[id]):
+				if self.state['icp'] == self.MANUAL:
+					spots.append({'pos':[pos[1],-pos[0]], 'data':1, 'size':15, 'symbol':str(i+1)})
+				elif self.state['icp'] == self.AUTO:
+					spots.append({'pos':[pos[1],-pos[0]], 'data':1, 'size':10, 'symbol':'o'})
+			self.cells[id].scatter.addPoints(spots)
+		'''
 		for key in self.vl.vlist:
 			for i, pos in enumerate(self.vl.vlist[key]):
 				if self.state['icp'] == self.MANUAL:
 					self.draw_point(self.cells[key].image, pos, symbol=str(i+1))
 				else:
 					self.draw_point(self.cells[key].image, pos)
+		'''
 
 	def remove_point(self, xxxxx):
 		## slot method for signal(removeVertexRequsted)
@@ -335,17 +386,65 @@ class ImageBar(pg.GraphicsWidget):
 		self.state['icp'] = self.MANUAL
 		self.redraw_point()
 
+	def lock_clicked(self, (btn)):
+		## slot method for ButtonItem.clicked
+		print "lock clicked"
+		for k in self.cells:
+			if self.cells[k].button_area.buttons['lock'] == btn:
+				if self.state['locked'][k] == True:
+					self.cells[k].button_area.buttons['lock'].setOpacity(0.4)
+					self.state['locked'][k] = False
+					self.cells[k].v.setMouseEnabled(True, True)
+				else:
+					self.cells[k].button_area.buttons['lock'].setOpacity(1)
+					self.state['locked'][k] = True
+					self.cells[k].v.setMouseEnabled(False, False)
+
+	def delete_clicked(self, (btn)):
+		## slot method for ButtonItem.clicked
+		print "delete clicked"
+		for k in self.cells:
+			if self.cells[k].button_area.buttons['del'] == btn:
+				if self.state['delete'][k] == True:
+					self.cells[k].button_area.buttons['del'].setOpacity(0.4)
+					self.state['delete'][k] = False
+				else:
+					self.cells[k].button_area.buttons['del'].setOpacity(1)
+					self.state['delete'][k] = True
+
+	def delete_hover(self, (scatter, pts)):
+		## slot method for ScatterPlotItem's hoverEvent
+		for k in self.cells:
+			if self.cells[k].scatter == scatter:
+				if self.state['delete'][k] == False:
+					return
+				print pts
+				for item in pts:
+					item.setBrush(10,10,10)
+
+	def delete_point_clicked(self, scatter, pts):
+		## slot method for ScatterPlotItem's mouseClickEvent (sigClicked)
+		## notice, corrdinate of ROI and scatter plot are different
+		##									(x, y)  -->  (y, -x)
+		for k in self.cells:
+			if self.cells[k].scatter == scatter:
+				if self.state['delete'][k] == False:
+					return
+				for item in pts:
+					## use int may not be very robust, but size seems always > 1
+					vdkey = (-int(item.pos().y()), int(item.pos().x()))
+					for ind, pos in enumerate(self.vl.vlist[k]):
+						if vdkey == (int(pos[0]), int(pos[1])):
+							break
+					self.vl.vlist[k].pop(ind)
+				self.redraw_point(id=k)
+
 	def shear_state_changed(self):
+		## slot method for allow shear button
 		if self.state['shear'] == True:
 			self.state['shear'] = False
 		else:
 			self.state['shear'] = True
-
-	def vb_resized(self, (v)):
-		## slot method for ViewBox's sigResized
-		#print "vb size = ", v.size().height()
-		btnRect = self.mapRectFromItem(self.cells[0].buttons['auto'], self.cells[0].buttons['auto'].boundingRect())
-		self.cells[0].buttons['auto'].setPos(0, v.size().height() - btnRect.height() - 5)
 
 	def align_image_requested(self):
 		## slot method for PushButton 'align image'
