@@ -42,13 +42,18 @@ cwid = ControlWidget()
 
 ## connect signal
 imbar.sigImageLoaded.connect(impanel.image_loaded)
+imbar.sigImageLoaded.connect(cwid.clear_heatmap_tree)
 cwid.sigAutoRequested.connect(imbar.auto_requested)
 cwid.sigManualRequested.connect(imbar.manual_requested)
 cwid.ui.btn_list['reg'].clicked.connect(imbar.align_image_requested)
+cwid.ui.btn_list['heatmap'].clicked.connect(impanel.heatmap_requested)
+cwid.ui.btn_list['heatmapTree'].itemActivated.connect(impanel.heatmap_changed)
+impanel.sigHeatmapLoaded.connect(cwid.heatmap_loaded)
 cwid.ui.shearCheck.stateChanged.connect(imbar.shear_state_changed)
 imbar.sigTransformRequested.connect(impanel.transform_requested)
+imbar.sigCurveChanged.connect(impanel.curve_changed)
 imbar.sigAffineRequested.connect(impanel.affine_requested)
-
+imbar.sigEnableHeatmapButton.connect(cwid.heatmap_button_enabled)
 ## manage layout
 win = QtGui.QMainWindow()
 win.setWindowTitle('Image Editor')

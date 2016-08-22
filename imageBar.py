@@ -81,16 +81,16 @@ class VertexList(object):
 	'''
 
 class InImageCell(object):
-	def __init__(self, v, image, scatter, open_action=None, button_area=None):
+	def __init__(self, v, image, scatter, pathplot, open_action=None, button_area=None):
 		self.v = v
 		self.image = image
 		self.open_action = open_action
 		self.scatter = scatter
+		self.pathplot = pathplot
 		self.button_area = button_area
-		
 
 #class ImageBar(QtGui.QWidget):
-class ImageBar(pg.GraphicsWidget):
+class ImageBar(QtGui.QWidget):
 	"""
 		ImageBar serves as the interface of:
 		1. load images into program and provide signal to inform imagePanel
@@ -107,6 +107,10 @@ class ImageBar(pg.GraphicsWidget):
 	sigImageLoaded = QtCore.Signal(object)
 	sigTransformRequested = QtCore.Signal(object)
 	sigAffineRequested = QtCore.Signal(object)
+	sigEnableHeatmapButton = QtCore.Signal(object)
+	sigCurveChanged = QtCore.Signal(object)
+##############################################################
+## initialization
 	def __init__(self, layout, images=None, path=None):
 		QtGui.QWidget.__init__(self)
 		self.w = layout
@@ -137,16 +141,20 @@ class ImageBar(pg.GraphicsWidget):
 		for i in range(self.max_img):
 			## add scatter plot item
 			v = self.w.addViewBox(row=i*2, col=1, lockAspect=True, enableMouse=True)
-			## button area
-			ba = ButtonArea()
+			## button area, histo's button area has draw curve function
+			if i == 1:
+				ba = ButtonArea(curve=True)
+			else:
+				ba = ButtonArea(parent=self)
 			self.w.addItem(ba, row=i*2+1, col=1)
 			self.w.layout.setRowFixedHeight(i*2+1, 10.)
 			scatter = pg.ScatterPlotItem(size=10, pen=pg.mkPen('w'), pxMode=True, brush=pg.intColor(100, 100), parent=v)
 			scatter.setZValue(20)
 			v.addItem(scatter)
-			pathplot = PathPlotItem()
-			v.addItem(pathplot)
-			self.cells.setdefault(i, InImageCell(v, None, scatter, button_area=ba))
+			#pathplot = PathPlotItem(size=10, pen=pg.mkPen('w'), pxMode=True, brush=pg.intColor(100, 100))
+			#pathplot.setZValue(20)
+			#v.addItem(pathplot)
+			self.cells.setdefault(i, InImageCell(v, None, scatter, None, button_area=ba))
 			#spots = [{'pos': [1000,-1000], 'data': 1},{'pos': [1200,-600], 'data': 1}]
 			#scatter.addPoints(spots)
 			#v = self.w.addViewBox(row=i, col=0, lockAspect=True, enableMouse=False)
@@ -154,8 +162,12 @@ class ImageBar(pg.GraphicsWidget):
 			##  signal and slot
 			#scatter.sigHoverEvent.connect(self.delete_hover)
 			scatter.sigClicked.connect(self.delete_point_clicked)
+			#pathplot.sigPixmapCreated.connect(self.add_pixmap)
 			ba.buttons['lock'].clicked.connect(self.lock_clicked)
 			ba.buttons['del'].clicked.connect(self.delete_clicked)
+		## button for histo
+		self.cells[1].button_area.buttons['curve'].clicked.connect(self.draw_curve_clicked)
+		self.cells[1].button_area.colorWidget.buttons['ok'].clicked.connect(self.color_ok_clicked)
 		## setup menus
 		self.set_menu()
 
@@ -225,24 +237,39 @@ class ImageBar(pg.GraphicsWidget):
 		## use ROI instead of imageItem
 		shape = arr.shape
 		img = ImageROI([0,0], [shape[0],shape[1]], movable=False, rotatable=False, sendBack=False, parent=self.cells[id].v)
+
 		img.set_image(arr)
 		self.cells[id].image = img
 		self.cells[id].v.addItem(img)
 		
+		##set histo's curve color, should be called before set_image
+		buttons = self.cells[1].button_area.colorWidget.buttons
+		img.set_curve_pen(buttons['color'].currentColor(), buttons['size'].value(), buttons['tense'].value()/100.)
+
 		## rotate the imageItem (oddly the image is rotated by default)
 		## there is a bug with the rotate method
 		img.setRotation(-90)
-		
+
 		## connect images signals to slot in class ImageBar
 		img.sigAddVertexRequested.connect(self.add_point)
 		img.sigLoadImageRequested.connect(self.load_image_requested)
+		img.sigCurveUpdated.connect(self.curve_updated)
+		#img.sigDragTriggered.connect(self.cells[id].pathplot.add_draw_point)
 		self.cells[id].open_action.triggered.connect(img.load_imgae_clicked)
 		## clear existed points
 		self.clear_point(id=id)
+		## reset button area
+		self.reset_button_area(id)
 		## send signal to inform imagePanel
 		self.sigImageLoaded.emit((id, arr))
 		
+		if id == 0 and id not in self.state['ready']:
+			self.sigEnableHeatmapButton.emit(self)
+
 		self.state['ready'][id] = True
+
+######################################################################
+## point drawing
 
 	def draw_point(self, image_item, pos, id=None, symbol=None):
 		## need to transform the coordinate
@@ -374,17 +401,25 @@ class ImageBar(pg.GraphicsWidget):
 			outfile.write(str(self.vl.vlist[1]))
 			outfile.close()
 
-	def auto_requested(self):
-		## slot method for sigAutoRequested
-		print "auto requested"
-		self.state['icp'] = self.AUTO
-		self.redraw_point()
+####################################################################################
+## buttonArea stuff
 
-	def manual_requested(self):
-		## slot method for sigAutoRequested
-		print "manual requested"
-		self.state['icp'] = self.MANUAL
-		self.redraw_point()
+	def color_ok_clicked(self):
+		## slot method for button['ok']
+		## set pen for drawing curve
+		buttons = self.cells[1].button_area.colorWidget.buttons
+		print self.cells[1].button_area.colorWidget.buttons['color'].currentColor().rgb()
+		print self.cells[1].button_area.colorWidget.buttons['size'].value()
+		print self.cells[1].button_area.colorWidget.buttons['tense'].value()
+		self.cells[1].image.set_curve_pen(buttons['color'].currentColor(), buttons['size'].value(), buttons['tense'].value()/100.)
+		self.cells[1].button_area.colorWidget.hide()
+
+	def add_pixmap(self, (pitem, arr)):
+		img = UiImageItem()
+		img.setRotation(-90)
+		self.cells[0].v.addItem(img)
+		#self.cells[0].image = img
+		img.setImage(arr)
 
 	def lock_clicked(self, (btn)):
 		## slot method for ButtonItem.clicked
@@ -406,11 +441,41 @@ class ImageBar(pg.GraphicsWidget):
 		for k in self.cells:
 			if self.cells[k].button_area.buttons['del'] == btn:
 				if self.state['delete'][k] == True:
+					self.reset_button_area(k) ## reset other buttons
 					self.cells[k].button_area.buttons['del'].setOpacity(0.4)
 					self.state['delete'][k] = False
+					self.cells[k].image.state_flag['isDelete'] = False
 				else:
+					self.reset_button_area(k) ## reset other buttons
 					self.cells[k].button_area.buttons['del'].setOpacity(1)
 					self.state['delete'][k] = True
+					self.cells[k].image.state_flag['isDelete'] = True
+
+	def draw_curve_clicked(self):
+		## slot method for histo's buttonItem
+		if 1 in self.state['ready']:
+			if self.cells[1].image.state_flag['isPaint']:
+				self.reset_button_area(1) ## reset other buttons
+				self.cells[1].image.state_flag['isPaint'] = False
+				self.cells[1].button_area.buttons['curve'].setOpacity(0.4)
+			else:
+				self.reset_button_area(1) ## reset other buttons
+				self.cells[1].image.state_flag['isPaint'] = True
+				self.cells[1].button_area.buttons['curve'].setOpacity(1)
+
+	def reset_button_area(self, id):
+		## lock button
+		self.cells[id].button_area.buttons['lock'].setOpacity(0.4)
+		self.state['locked'][id] = False
+		self.cells[id].v.setMouseEnabled(True, True)
+		## delete button
+		self.cells[id].button_area.buttons['del'].setOpacity(0.4)
+		self.state['delete'][id] = False
+		self.cells[id].image.state_flag['isDelete'] = False
+		## curve button
+		if id == 1:
+			self.cells[id].button_area.buttons['curve'].setOpacity(0.4)
+			self.cells[id].image.state_flag['isPaint'] = False
 
 	def delete_hover(self, (scatter, pts)):
 		## slot method for ScatterPlotItem's hoverEvent
@@ -438,6 +503,26 @@ class ImageBar(pg.GraphicsWidget):
 							break
 					self.vl.vlist[k].pop(ind)
 				self.redraw_point(id=k)
+
+	def curve_updated(self, arr):
+		## slot method for imageROI's sigCurveUpdated
+		## used to inform imagePanel
+		self.sigCurveChanged.emit(arr)
+
+###########################################################################3
+## handling alignment
+
+	def auto_requested(self):
+		## slot method for sigAutoRequested
+		print "auto requested"
+		self.state['icp'] = self.AUTO
+		self.redraw_point()
+
+	def manual_requested(self):
+		## slot method for sigAutoRequested
+		print "manual requested"
+		self.state['icp'] = self.MANUAL
+		self.redraw_point()
 
 	def shear_state_changed(self):
 		## slot method for allow shear button

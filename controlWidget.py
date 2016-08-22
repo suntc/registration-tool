@@ -14,6 +14,7 @@ class ControlWidget(QtGui.QWidget):
 	sigManualRequested = QtCore.Signal(object)
 	sigFileLoaded = QtCore.Signal(object)
 	sigFileSaved = QtCore.Signal(object)
+	sigHeatmapRequested = QtCore.Signal(object)
 
 	def __init__(self):
 		QtGui.QWidget.__init__(self)
@@ -60,6 +61,7 @@ class ControlWidget(QtGui.QWidget):
 		self.ui.loadBtn.clicked.connect(self.loadClicked)
 		self.ui.saveBtn.clicked.connect(self.saveClicked)
 		self.ui.saveAsBtn.clicked.connect(self.saveAsClicked)
+		self.ui.btn_list['heatmap'].clicked.connect(self.heatmapClicked)
 		#self.ui.showChartBtn.toggled.connect(self.chartToggled)
 		#self.chart.sigFileLoaded.connect(self.setCurrentFile)
 		#self.ui.reloadBtn.clicked.connect(self.reloadClicked)
@@ -105,6 +107,9 @@ class ControlWidget(QtGui.QWidget):
 		except:
 			self.ui.saveBtn.failure("Error")
 			raise
+
+	def heatmapClicked(self):
+		self.sigHeatmapRequested.emit(self)
 
 	def loadFile(self, fileName=None, startDir=None):
 		if fileName is None:
@@ -167,6 +172,22 @@ class ControlWidget(QtGui.QWidget):
 		state['outputNode'] = self.outputNode.saveState()
 		
 		return state
+
+	def heatmap_button_enabled(self):
+		## slot
+		self.ui.btn_list['heatmap'].setEnabled(True)
+
+	def heatmap_loaded(self, keys):
+		## slot for imagePanel's sigHeatmapLoaded
+		for k in keys:
+			itm = QtGui.QTreeWidgetItem([k])
+			self.ui.btn_list['heatmapTree'].addTopLevelItem(itm)
+
+	def clear_heatmap_tree(self, (id, arr)):
+		## slot method for imageBar's sigImageLoaded
+		if id == 0:
+			self.ui.btn_list['heatmapTree'].clear()
+
 '''
 app = QtGui.QApplication([])
 win = QtGui.QMainWindow()
