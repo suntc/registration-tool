@@ -8,6 +8,48 @@ import numpy as np
 from scipy.spatial.distance import pdist
 from math import acos
 import cv2
+from matplotlib.delaunay import delaunay
+from math import asin, pi
+from PIL import Image
+from pylab import *
+from numpy import *
+
+
+def triangulate_points(x,y):
+    """delaunay triangulation of 2D points"""
+    centers,edges,tri,neighbors = delaunay(x,y)
+    return tri
+
+def alpha_for_triangle(points,m,n):
+    """ creates alpha map of size (m,n) 
+        for a triangle with corners defined by points
+        (given in normalized homogeneous coordinates)."""
+    
+    alpha = zeros((m,n))
+    points = np.array(points, dtype='i')
+    minx = min(points[1])
+    miny = min(points[0])
+    maxx = max(points[1])
+    maxy = max(points[0])
+    from matplotlib import path
+    tri = path.Path(np.dstack((points[1], points[0]))[0])
+    mx, my = np.meshgrid(np.arange(minx, maxx), np.arange(miny, maxy))
+    pts = np.dstack((mx, my))
+    r = pts.shape[0]
+    c = pts.shape[1]
+    pts = np.reshape(pts, (1,r*c,2))
+    res = tri.contains_points(pts[0])
+    res = res.astype(int)
+    res = np.reshape(res, (r,c))
+    alpha[miny:maxy,minx:maxx] = res
+    '''
+    for i in range(min(points[0]),max(points[0])):
+        for j in range(min(points[1]),max(points[1])):
+            x = linalg.solve(points,[i,j,1])
+            if min(x) > 0: #all coefficients positive
+                alpha[i,j] = 1
+    '''     
+    return alpha
 
 def compute_affine(src, dest):
     import numpy as np
@@ -27,6 +69,57 @@ def compute_affine(src, dest):
     res = np.vstack((np.hstack(resx[1]), np.hstack(resy[1])))
     #print "result is... ", res
     return res
+
+def pw_affine(fromim,toim,fp,tp,tri):
+    """ warp triangular patches from an image.
+        fromim = image to warp 
+        toim = destination image
+        fp = from points in hom. coordinates
+        tp = to points in hom.  coordinates
+        tri = triangulation
+        corrdinates are in (y, x) form    
+    """
+
+    im = toim.copy()
+
+    #check if image is grayscale or color
+    is_color = len(fromim.shape) == 3
+
+    #create image to warp to (needed if iterate colors)
+    im_t = zeros(im.shape, 'uint8') 
+
+    for t in tri:
+        #compute affine transformation
+        print "begin affine"
+        #H = Haffine_from_points(tp[:,t],fp[:,t])
+        dst = np.array(np.dstack((tp[:,t][1],tp[:,t][0]))[0], dtype='f4')
+        src = np.array(np.dstack((fp[:,t][1],fp[:,t][0]))[0], dtype='f4')
+        H = cv2.getAffineTransform(src,dst)
+        print "finish affine" 
+        print "begin transform"
+        '''
+        if is_color:
+            for col in range(3):
+                im_t[:,:,col] = ndimage.affine_transform(fromim[:,:,col],H[:2,:2],(H[0,2],H[1,2]),im.shape[:2])
+        else:
+            im_t = ndimage.affine_transform(fromim,H[:2,:2],(H[0,2],H[1,2]),im.shape[:2])
+        '''
+        im_t = cv2.warpAffine(fromim, H[0:2,:], (im.shape[1], im.shape[0]))
+        #cv2.imshow('img', im_t)
+        #cv2.waitKey(0)
+        print "finish transform"
+        #alpha for triangle
+        print "begin alpha"
+        alpha = alpha_for_triangle(tp[:,t],im_t.shape[0],im_t.shape[1])
+        print "finish alpha"
+        #add triangle to image
+        if is_color:
+            for col in range(3):
+                im[:,:,col] = (1-alpha)*im[:,:,col] + alpha*im_t[:,:,col]
+        else:
+            im = (1-alpha)*im + alpha*im_t
+
+    return im
 
 def rigid_transform_2D(A, B):
     assert len(A) == len(B)

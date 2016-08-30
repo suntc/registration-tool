@@ -12,7 +12,10 @@ from imageROI import ImageROI
 from load import ImageFileLoader
 from buttonArea import ButtonArea
 from pathPlotItem import PathPlotItem
+from registrator import Registrator
 import align
+import contourSelection
+
 
 class VertexList(object):
 	"""
@@ -88,6 +91,7 @@ class InImageCell(object):
 		self.scatter = scatter
 		self.pathplot = pathplot
 		self.button_area = button_area
+		self.contour = None
 
 #class ImageBar(QtGui.QWidget):
 class ImageBar(QtGui.QWidget):
@@ -105,8 +109,6 @@ class ImageBar(QtGui.QWidget):
 											(x, y)  -->  (y, -x)
 	"""
 	sigImageLoaded = QtCore.Signal(object)
-	sigTransformRequested = QtCore.Signal(object)
-	sigAffineRequested = QtCore.Signal(object)
 	sigEnableHeatmapButton = QtCore.Signal(object)
 	sigCurveChanged = QtCore.Signal(object)
 ##############################################################
@@ -131,12 +133,23 @@ class ImageBar(QtGui.QWidget):
 			'ready'	: {},
 			'locked' : [False, False],
 			'delete' : [False, False],
+			'mode' : 'rigid', ## 'rigid', 'affine', 'projective', 'piecewise'
+			'doingContour' : False,
 		}
+		## message boxes
+		self.message_box = {}
+		self.message_box['nocontour'] = QtGui.QMessageBox()
+		self.message_box['nocontour'].setText("Please first select foreground outline.")
+		self.message_box['nocontour'].setInformativeText("Click 'ok' to start selecting now.")
+		self.message_box['nocontour'].setStandardButtons(QtGui.QMessageBox.Ok | QtGui.QMessageBox.Cancel)
+		## cells to store most of information related to image cell
 		self.cells = {}
 		## max number of images can be loaded
 		self.max_img = 2
 		## create vertex list
 		self.vl = VertexList()
+		## registration object
+		self.registrator = Registrator()
 		## create empty boxes to hold images
 		for i in range(self.max_img):
 			## add scatter plot item
@@ -165,6 +178,7 @@ class ImageBar(QtGui.QWidget):
 			#pathplot.sigPixmapCreated.connect(self.add_pixmap)
 			ba.buttons['lock'].clicked.connect(self.lock_clicked)
 			ba.buttons['del'].clicked.connect(self.delete_clicked)
+			ba.buttons['contour'].clicked.connect(self.contour_clicked)
 		## button for histo
 		self.cells[1].button_area.buttons['curve'].clicked.connect(self.draw_curve_clicked)
 		self.cells[1].button_area.colorWidget.buttons['ok'].clicked.connect(self.color_ok_clicked)
@@ -268,12 +282,18 @@ class ImageBar(QtGui.QWidget):
 
 		self.state['ready'][id] = True
 
+		## just test...
+		#ct = contourSelection.resize_segmentation(arr)
+		#self.cells[id].contour = ct
+		#print ct
+
 ######################################################################
 ## point drawing
 
 	def draw_point(self, image_item, pos, id=None, symbol=None):
 		## need to transform the coordinate
 		## id is added later; it seems a little ugly
+		print "draw_point"
 		if self.state['icp'] == self.AUTO:
 			if symbol == None:
 				spots = [{'pos': [pos[1],-pos[0]], 'data': 1, 'symbol' : 'o', 'size' : 10}]
@@ -451,6 +471,19 @@ class ImageBar(QtGui.QWidget):
 					self.state['delete'][k] = True
 					self.cells[k].image.state_flag['isDelete'] = True
 
+	def contour_clicked(self, (btn)):
+		## slot
+		## call open cv's function to let usef specify outline contour of the object
+		if self.state['doingContour']:
+			return
+		for k in self.cells:
+			if self.cells[k].button_area.buttons['contour'] == btn:
+				if k not in self.state['ready']:
+					return
+				self.state['doingContour'] = True
+				self.select_contour(k)
+			self.state['doingContour'] = False
+
 	def draw_curve_clicked(self):
 		## slot method for histo's buttonItem
 		if 1 in self.state['ready']:
@@ -512,6 +545,17 @@ class ImageBar(QtGui.QWidget):
 ###########################################################################3
 ## handling alignment
 
+	def select_contour(self, k):
+		ct = contourSelection.resize_segmentation(self.cells[k].image.original_array)
+		if isinstance(ct, np.ndarray):
+			self.cells[k].contour = ct
+			print "contour =", ct
+
+	def mode_changed(self, modename):
+		print "mode changed"
+		modedict = {'Rigid':'rigid', 'Affine':'affine', 'Projective':'projective', 'Piecewise affine':'piecewise'}
+		self.state['mode'] = modedict[modename]
+
 	def auto_requested(self):
 		## slot method for sigAutoRequested
 		print "auto requested"
@@ -533,6 +577,70 @@ class ImageBar(QtGui.QWidget):
 
 	def align_image_requested(self):
 		## slot method for PushButton 'align image'
+		## if auto, preprocess with ICP
+		if self.state['icp'] == self.AUTO:
+			data = np.array(self.vl.vlist[0], dtype='f')
+			model = np.array(self.vl.vlist[1], dtype='f')
+			maxd = np.max(pdist(data))
+			maxm = np.max(pdist(model))
+			guess_scale = maxm / maxd
+			step = 0.05
+			min_error = 10e10
+			m_data = None
+			m_model = None
+			m_scale = None
+
+			for i in np.arange(max(guess_scale - 1, 0.1), guess_scale + 1.1, step):
+				m, error = align.icp_neighbors(data * i, model)
+				if error < min_error:
+					min_error = error
+					m_model = m
+			p = []
+			s = []
+			for item in data:
+				p.append([item[1], item[0]])
+			for item in m_model:
+				s.append([item[1], item[0]])
+			data = np.array(p, dtype='f')
+			model = np.array(s, dtype='f')
+		else:
+			p = []
+			s = []
+			for item in self.vl.vlist[0]:
+				p.append([item[1], item[0]])
+			for item in self.vl.vlist[1]:
+				s.append([item[1], item[0]])
+			data = np.array(p, dtype='f')
+			model = np.array(s, dtype='f')
+		## set points to registrator
+		self.registrator.set_points(data, model)
+		## choose different methods by state['mode']
+		if self.state['mode'] == 'affine':
+			if len(self.vl.vlist[0]) < 3 or len(self.vl.vlist[1]) < 3:
+				print "no enough vertices"
+				return
+			self.registrator.affine()
+
+		elif self.state['mode'] == 'piecewise':
+			if len(self.vl.vlist[0]) < 4 or len(self.vl.vlist[1]) < 4:
+				print "no enough vertices"
+				return
+			if self.cells[0].contour == None or self.cells[1].contour == None:
+				msg_ret = self.message_box['nocontour'].exec_()
+				if (msg_ret == QtGui.QMessageBox.Ok):
+					self.select_contour(0)
+					self.select_contour(1)
+					return
+			self.registrator.piecewise(self.cells[0].contour,self.cells[1].contour)
+		elif self.state['mode'] == 'rigid':
+			if len(self.vl.vlist[0]) < 3 or len(self.vl.vlist[1]) < 3:
+				print "no enough vertices"
+				return
+			self.registrator.rigid()
+
+"""
+	def align_image_requested(self):
+		## slot method for PushButton 'align image'
 		## check point pair number
 		print len(self.vl.vlist[0])
 		print len(self.vl.vlist[1]) 
@@ -542,6 +650,17 @@ class ImageBar(QtGui.QWidget):
 		## perform different algorithm based on icp state
 
 		
+		p = []
+		s = []
+		for item in self.vl.vlist[0]:
+			p.append([item[1], item[0]])
+		for item in self.vl.vlist[1]:
+			s.append([item[1], item[0]])
+		data = np.array(p, dtype='f')
+		model = np.array(s, dtype='f')
+		self.registrator.set_points(data, model)
+		self.registrator.piecewise(self.cells[0].contour,self.cells[1].contour)
+
 		if self.state['icp'] == self.AUTO and self.state['shear'] == False:
 			print "icp: auto"
 			data = np.array(self.vl.vlist[0], dtype='f')
@@ -630,3 +749,16 @@ class ImageBar(QtGui.QWidget):
 			print "affine matrix: ", aft
 			self.sigAffineRequested.emit((aft))
 			## use warp affine would make some part of the data image missing; how to improve?
+
+		elif self.state['mode'] == 'piecewise':
+			p = []
+			s = []
+			for item in self.vl.vlist[0]:
+				p.append([item[1], item[0]])
+			for item in self.vl.vlist[1]:
+				s.append([item[1], item[0]])
+			data = np.array(p, dtype='f')
+			model = np.array(s, dtype='f')
+			self.registrator.set_points(data, model)
+			self.registrator.piecewise(self.cells[0].contour,self.cells[1].contour)
+"""

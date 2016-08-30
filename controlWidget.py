@@ -15,6 +15,7 @@ class ControlWidget(QtGui.QWidget):
 	sigFileLoaded = QtCore.Signal(object)
 	sigFileSaved = QtCore.Signal(object)
 	sigHeatmapRequested = QtCore.Signal(object)
+	sigModeChanged = QtCore.Signal(object)
 
 	def __init__(self):
 		QtGui.QWidget.__init__(self)
@@ -56,30 +57,32 @@ class ControlWidget(QtGui.QWidget):
 		'''
 		## connect buttons with slot methods
 		#self.ui.ctrlList.itemChanged.connect(self.itemChanged)
-		self.ui.btn_list['auto'].clicked.connect(self.autoClicked)
-		self.ui.btn_list['manual'].clicked.connect(self.manualClicked)
+		#self.ui.btn_list['auto'].clicked.connect(self.autoClicked)
+		#self.ui.btn_list['manual'].clicked.connect(self.manualClicked)
+		self.ui.btn_list['auto'].toggled.connect(self.autoClicked)
+		self.ui.btn_list['manual'].toggled.connect(self.manualClicked)
 		self.ui.loadBtn.clicked.connect(self.loadClicked)
 		self.ui.saveBtn.clicked.connect(self.saveClicked)
 		self.ui.saveAsBtn.clicked.connect(self.saveAsClicked)
 		self.ui.btn_list['heatmap'].clicked.connect(self.heatmapClicked)
-		#self.ui.showChartBtn.toggled.connect(self.chartToggled)
-		#self.chart.sigFileLoaded.connect(self.setCurrentFile)
-		#self.ui.reloadBtn.clicked.connect(self.reloadClicked)
-		#self.chart.sigFileSaved.connect(self.fileSaved)
+		self.ui.btn_list['mode'].currentIndexChanged.connect(self.modeChanged)
+
 
 	def manualClicked(self):
-		self.ui.btn_list['manual'].setChecked(True)
-		self.ui.btn_list['auto'].setChecked(False)
-		self.ui.shearCheck.setChecked(False)
-		self.ui.shearCheck.setCheckable(False)
-		self.sigManualRequested.emit(self)
+		#self.ui.btn_list['manual'].setChecked(True)
+		#self.ui.btn_list['auto'].setChecked(False)
+		#self.ui.shearCheck.setChecked(False)
+		#self.ui.shearCheck.setCheckable(False)
+		if self.ui.btn_list['manual'].isChecked():
+			self.sigManualRequested.emit(self)
 
 	def autoClicked(self):
-		self.ui.btn_list['auto'].setChecked(True)
-		self.ui.btn_list['manual'].setChecked(False)
-		self.ui.shearCheck.setCheckable(True)
-		self.ui.shearCheck.setChecked(True)
-		self.sigAutoRequested.emit(self)
+		#self.ui.btn_list['auto'].setChecked(True)
+		#self.ui.btn_list['manual'].setChecked(False)
+		#self.ui.shearCheck.setCheckable(True)
+		#self.ui.shearCheck.setChecked(True)
+		if self.ui.btn_list['auto'].isChecked():
+			self.sigAutoRequested.emit(self)
 
 	def loadClicked(self):
 		newFile = self.loadFile()
@@ -172,6 +175,9 @@ class ControlWidget(QtGui.QWidget):
 		state['outputNode'] = self.outputNode.saveState()
 		
 		return state
+
+	def modeChanged(self):
+		self.sigModeChanged.emit(str(self.ui.btn_list['mode'].currentText()))
 
 	def heatmap_button_enabled(self):
 		## slot

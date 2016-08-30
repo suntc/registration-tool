@@ -19,6 +19,9 @@ class ButtonArea(pg.GraphicsWidget):
 		self.buttons['del'] = pg.ButtonItem(pg.pixmaps.getPixmap('del'), 14, self)
 		self.buttons['del'].setPos(20, 0)
 		self.buttons['del'].setOpacity(1)
+		self.buttons['contour'] = pg.ButtonItem(pg.pixmaps.getPixmap('lock'), 14, self)
+
+		self.labels = {}
 		if curve:
 			self.buttons['curve'] = pg.ButtonItem(pg.pixmaps.getPixmap('curve'), 14, self)
 			self.buttons['curve'].setPos(40, 0)
@@ -26,10 +29,13 @@ class ButtonArea(pg.GraphicsWidget):
 			self.buttons['color'] = pg.ButtonItem(pg.pixmaps.getPixmap('color'), 14, self)
 			self.buttons['color'].setPos(60, 0)
 			self.buttons['color'].setOpacity(1)
+			self.buttons['contour'].setPos(80, 0)
 			self.colorWidget = ColorWidegt(parent=self.parent)
 			#self.colorWidget
 			self.buttons['color'].clicked.connect(self.color_clicked)
 			self.colorWidget.buttons['cancel'].clicked.connect(self.cancel_clicked)
+		else:
+			self.buttons['contour'].setPos(40, 0)
 
 	def color_clicked(self):
 		self.colorWidget.show()

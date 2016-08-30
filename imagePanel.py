@@ -5,6 +5,7 @@ Created on 2016-07-10
 
 from imageROI import ImageROI
 from load import ImageFileLoader
+import align
 import pyqtgraph as pg
 from PyQt4 import QtCore, QtGui
 import cv2
@@ -33,6 +34,7 @@ class ImagePanel(QtGui.QWidget):
 			'lastHeatmap' : None,
 		}
 		self.affine_matrix = None
+		self.piecewise_param = None
 		self.v = self.w.addViewBox(row=0, col=0, lockAspect=True)
 		g = pg.GridItem()
 		self.v.addItem(g)
@@ -73,15 +75,34 @@ class ImagePanel(QtGui.QWidget):
 		self.images[0].setAngle(-90)
 		self.images[0].setPos((0, 0))
 		self.images[0].set_image(nphoto)
+		self.images[0].do_scale(shape[1], shape[0])
 		self.images[0].set_alpha(0.5 * 255)
 		self.images[1].setAngle(-90)
 		self.images[1].setPos((0, 0))
 		self.images[1].set_alpha(0.5 * 255)
+		self.images[1].do_scale(shape[1], shape[0])
 		## for heatmap
 		self.state['lastAlign'] = 'affine'
 		self.affine_matrix = aft
 		#self.images[0].affine_heatmap(aft, shape[1], shape[0])
 		#self.images[0].set_size((shape[0], shape[1]))
+
+	def piecewise_requested(self, (fp, tp, tri)):
+		shape = self.raw_array[1].shape
+		nphoto = align.pw_affine(self.raw_array[0],self.raw_array[1],fp,tp,tri)
+		self.images[0].setAngle(-90)
+		self.images[0].setPos((0, 0))
+		self.images[0].set_image(nphoto)
+		self.images[0].set_alpha(0.5 * 255)
+		self.images[1].setAngle(-90)
+		self.images[1].setPos((0, 0))
+		self.images[1].set_alpha(0.5 * 255)
+		self.images[0].do_scale(shape[1], shape[0])
+		self.images[1].do_scale(shape[1], shape[0])
+		## save state
+		self.state['lastAlign'] = 'piecewise'
+		self.piecewise_param = (fp, tp, tri)
+
 		
 
 	def add_image(self, id, arr):
