@@ -5,6 +5,7 @@ Created on 2016-07-11
 
 from itertools import groupby
 import pyqtgraph as pg
+from skimage import transform as tf
 from pyqtgraph import ROI
 from PyQt4 import QtCore, QtGui
 import cv2
@@ -12,12 +13,16 @@ import numpy as np
 import poly_point_isect
 from uiImageItem import UiImageItem
 from scipy.spatial.distance import pdist
+import align
 
 class CurveObject(object):
 	"""Class representing the drag and drop curve"""
-	def __init__(self, path, pen):
+	def __init__(self, path, pen, track=None, tense=None, color=None, size=None, line=None, cap=None, join=None):
 		self.path = path
 		self.pen = pen
+		self.track = track
+		self.pen_param = {'color':color, 'size':size, 'line':line, 'cap':cap, 'join':join}
+		self.curve_tense = tense
 
 class ImageROI(ROI):
 	"""subclass of ROI for holding/processing image
@@ -50,6 +55,7 @@ class ImageROI(ROI):
 		self.prev_alpha = 255
 
 		self.state_flag = {}
+		self.state_flag['isDrag'] = False
 		self.state_flag['isPaint'] = False
 		self.state_flag['isMoving'] = False
 		self.state_flag['isHeatmap'] = False
@@ -57,7 +63,7 @@ class ImageROI(ROI):
 
 		self.widgets = {}
 
-		self.curves = [] ## storing painterPath
+		self.curves = [] ## storing curveObject
 		self.track = []
 
 		if simple:
@@ -168,7 +174,7 @@ class ImageROI(ROI):
 		self.set_image(self.image_array)
 		'''
 
-	def load_imgae_clicked(self, item):
+	def load_image_clicked(self, item):
 		self.sigLoadImageRequested.emit(self)
 
 	def send_back_clicked(self):
@@ -236,11 +242,29 @@ class ImageROI(ROI):
 	def affine_heatmap(self, key, aft):
 		self.heatmap_current_array = cv2.warpAffine(self.heatmap_original_arrays[key], aft, (self.image_array.shape[1], self.image_array.shape[0]))
 
-	def show_heatmap(self, enable, key=None, affine=None):
+	def projective_heatmap(self, key, tform):
+		self.heatmap_current_array = tf.warp(self.heatmap_original_arrays[key], tform, output_shape=(self.image_array.shape[0], self.image_array.shape[1]))
+
+	def piecewise_affine_heatmap(self, key, param):
+		## param (fp, tp, tri)
+		fp = param[0]
+		tp = param[1]
+		tri = param[2]
+		back_arr = np.zeros([self.state['size'][0],self.state['size'][1],4])
+		self.heatmap_current_array = align.pw_affine(self.heatmap_original_arrays[key],back_arr,fp,tp,tri)
+		ri, ci, di = np.nonzero(self.heatmap_current_array)
+		self.heatmap_current_array[ri,ci,3] = 255
+		pass
+
+	def show_heatmap(self, enable, key=None, mode=None, param=None):
 		if enable:
 			self.state_flag['isHeatmap'] = True
-			if affine is not None:
-				self.affine_heatmap(key, affine)
+			if mode == 'affine':
+				self.affine_heatmap(key, param)
+			elif mode == 'piecewise':
+				self.piecewise_affine_heatmap(key, param)
+			elif mode == 'projective':
+				self.projective_heatmap(key, param)
 			else:
 				self.heatmap_current_array = self.heatmap_original_arrays[key]
 			## overlap the heatmap and the array
@@ -277,6 +301,8 @@ class ImageROI(ROI):
 			ev.ignore()
 			return
 		else:
+			self.state_flag['isDrag'] = True
+			print "start drag", self.state_flag['isDrag']
 			if ev.isStart():
 				self.track = []
 			if self.state_flag['isPaint']:
@@ -296,6 +322,8 @@ class ImageROI(ROI):
 				ROI.mouseDragEvent(self, ev)
 
 		if ev.isFinish():
+			print "finish drag"
+			self.state_flag['isDrag'] = False
 			if self.state_flag['isMoving'] == True:
 				print "end"
 				self.track.append((ev.pos().x(),ev.pos().y()))
@@ -332,7 +360,8 @@ class ImageROI(ROI):
 					#self.track = [(124.79421229324313, 300.80197629011207), (134.39463578398144, 267.200494072528), (148.7952710200889, 233.59901185494397), (161.59583567440663, 203.1976708009393), (172.79632974693467, 187.1969649830421), (179.19661207409354, 179.19661207409354), (193.597247310201, 164.79597683798607), (217.59830603704674, 139.19484752935062), (241.5993647638925, 123.19414171145343), (264.00035290894857, 113.59371822071512), (288.00141163579434, 103.99329472997684), (308.8023291990607, 97.59301240281798), (328.0031761805373, 94.39287123923853), (350.40416432559334, 94.39287123923853), (372.8051524706494, 103.99329472997684), (385.6057171249671, 108.79350647534599), (393.60607003391567, 115.19378880250486), (406.40663468823345, 123.19414171145343), (414.406987597182, 131.19449462040205), (420.8072699243409, 143.99505927471978), (427.20755225149975, 155.19555334724777), (433.60783457865864, 171.19625916514497), (440.0081169058175, 191.99717672841126), (444.8083286511866, 214.39816487346735), (446.40839923297636, 223.99858836420566), (444.8083286511866, 243.19943534568222), (438.4080463240278, 265.6004234907383), (432.0077639968689, 283.2011998904252), (427.20755225149975, 291.20155279937376), (424.00741108792033, 292.8016233811635), (420.8072699243409, 296.0017645447429), (419.2071993425512, 297.60183512653265), (409.60677585181287, 304.0021174536915), (401.6064229428643, 308.80232919906064), (395.2061406157054, 312.0024703626401), (380.80550537959795, 320.0028232715887), (363.20472897991107, 328.00317618053725), (345.6039525802242, 336.0035290894859), (329.603246762327, 345.60395258022413), (323.20296443516816, 348.8040937438036), (315.2026115262195, 353.60430548917276), (312.0024703626401, 353.60430548917276), (304.00211745369154, 358.4045172345419), (296.0017645447429, 361.60465839812133), (284.8012704722149, 368.0049407252802), (278.40098814505603, 371.2050818888596), (268.8005646543177, 372.8051524706493), (262.4002823271589, 372.8051524706493), (254.39992941821023, 372.8051524706493), (239.99929418210277, 372.8051524706493), (220.7984472006262, 366.4048701434905), (209.59795312809817, 363.20472897991107), (206.39781196451875, 361.60465839812133), (201.5976002191496, 356.8044466527522), (193.597247310201, 352.004234907383), (185.5968944012524, 344.00388199843445), (180.79668265588325, 337.60359967127556), (172.79632974693467, 326.4031055987476), (164.79597683798607, 318.40275268979894), (163.19590625619637, 316.80268210800926), (153.59548276545806, 305.6021880354812), (147.1952004382992, 294.4016939629532), (140.7949181111403, 281.60112930863545), (132.358182316249, 274.328081209592)]
 					self.curves.append(CurveObject(path=self.make_curve(self.track, self.curve_tense, 8), pen=QtGui.QPen(self.curve_color, self.curve_size, QtCore.Qt.SolidLine, QtCore.Qt.FlatCap, QtCore.Qt.MiterJoin)))
 				'''
-				self.curves.append(CurveObject(path=self.make_curve(self.track, self.curve_tense, step='auto'), pen=QtGui.QPen(self.curve_color, self.curve_size, QtCore.Qt.SolidLine, QtCore.Qt.RoundCap, QtCore.Qt.RoundJoin)))
+				#self.curves.append(CurveObject(path=self.make_curve(self.track, self.curve_tense, step='auto'), pen=QtGui.QPen(self.curve_color, self.curve_size, QtCore.Qt.SolidLine, QtCore.Qt.RoundCap, QtCore.Qt.RoundJoin)))
+				self.curves.append(CurveObject(self.make_curve(self.track, self.curve_tense, step='auto'), QtGui.QPen(self.curve_color, self.curve_size, QtCore.Qt.SolidLine, QtCore.Qt.RoundCap, QtCore.Qt.RoundJoin), self.track, self.curve_tense,  self.curve_color, self.curve_size, QtCore.Qt.SolidLine, QtCore.Qt.RoundCap, QtCore.Qt.RoundJoin))
 				self.update_curve()
 				self.state_flag['isMoving'] = False
 	
@@ -463,7 +492,11 @@ class ImageROI(ROI):
 				#self.image_item.setImage(self.original_array, levels=[0,255])
 				return
 
-
+	def restore_curve_file(self, curves_params):
+		## curves_params: [[track, tense, pen_param]]
+		for item in curves_params:
+			self.curves.append(CurveObject(self.make_curve(item[0], item[1], step='auto'), QtGui.QPen(item[2]['color'], item[2]['size'], item[2]['line'], item[2]['cap'], item[2]['join']), item[0], item[1], item[2]['color'], item[2]['size'], item[2]['line'], item[2]['cap'], item[2]['join']))
+		self.update_curve()
 
 ###############################################
 

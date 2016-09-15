@@ -18,12 +18,18 @@ def getPixmap(name):
     (eg. getPixmap('auto') loads pyqtgraph/pixmaps/auto.png)
     """
     key = name+'.png'
-    if key in ['del.png', 'curve.png', 'color.png']:
+    if key in ['del.png', 'curve.png', 'color.png','contour.png','tri.png','restore.png']:
         from PIL import Image
+        import cv2
         import numpy as np
         arr = pixmapData.pixmapData['lock.png']
         brr = np.array(arr, copy=True)
         imarr = np.asarray(Image.open(key), dtype='i')
+        r = imarr[:,:,0].copy()
+        g = imarr[:,:,1].copy()
+        b = imarr[:,:,2].copy()
+        imarr[:,:,2] = r
+        imarr[:,:,0] = b
         if imarr.shape[2] == 3:
             imarr = np.insert(imarr, 3, 255, axis=2)
         for i in range(brr.shape[0]):

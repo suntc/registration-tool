@@ -82,7 +82,7 @@ class ColorWidegt(QtGui.QWidget):
 		## store current value
 		self.cur_color = QtGui.QColor(79,106,25)
 		self.cur_tense = 0.4
-		self.cur_size = 10
+		self.cur_size = 5
 
 		self.restore_value()
 

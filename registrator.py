@@ -11,7 +11,7 @@ import cv2
 from PIL import Image
 from pylab import *
 from numpy import *
-
+from skimage import transform as tf
 from PyQt4 import QtCore, QtGui
 
 def triangulate_points(x,y):
@@ -105,6 +105,7 @@ class Registrator(QtCore.QObject):
     sigTransformRequested = QtCore.Signal(object)
     sigAffineRequested = QtCore.Signal(object)
     sigPiecewiseRequested = QtCore.Signal(object)
+    sigProjectiveRequested = QtCore.Signal(object)
     """docstring for Registrator"""
     def __init__(self):
         QtCore.QObject.__init__(self)
@@ -120,6 +121,8 @@ class Registrator(QtCore.QObject):
         data = self.data.reshape([1,self.data.shape[0],self.data.shape[1]])
         model = self.model.reshape([1,self.model.shape[0],self.model.shape[1]])
         rft = cv2.estimateRigidTransform(data, model, False)
+        if rft == None:
+            rft = cv2.estimateRigidTransform(data, model, True)
         self.sigAffineRequested.emit((rft))
 
     def affine(self):
@@ -128,7 +131,17 @@ class Registrator(QtCore.QObject):
         self.sigAffineRequested.emit((aft))
 
     def projective(self):
-        pass
+        tform = tf.ProjectiveTransform()
+        ## skimage is wiered
+        dst = np.dstack( [self.data[:,1],self.data[:,0]] )[0]
+        src = np.dstack( [self.model[:,1],self.model[:,0]] )[0]
+        print "data=",self.data
+        print "model=",self.model
+        tform.estimate(self.model, self.data)
+        #tform.estimate(src, src)
+        #warped = tf.warp(text, tform3, output_shape=(50, 300))
+        self.sigProjectiveRequested.emit((tform))
+        print "End projective in Registrator"
 
     def piecewise(self, d_contour, m_contour):
         ## compute affine / projective first to get bounding box correspondence

@@ -113,13 +113,14 @@ class ImageBar(QtGui.QWidget):
 	sigCurveChanged = QtCore.Signal(object)
 ##############################################################
 ## initialization
-	def __init__(self, layout, images=None, path=None):
+	def __init__(self, layout, images=None, path=None, configs=None):
 		QtGui.QWidget.__init__(self)
 		self.w = layout
 		self.images = images
 		## file related
 		self.loader = ImageFileLoader()
 		self.default_path = "./"
+		self.conf = configs
 		## module state
 		self.IDLE = 0
 		self.WAITFORIMAGE = 1
@@ -148,12 +149,13 @@ class ImageBar(QtGui.QWidget):
 		self.max_img = 2
 		## create vertex list
 		self.vl = VertexList()
+		self.conf.configs['vl'] = self.vl
 		## registration object
 		self.registrator = Registrator()
 		## create empty boxes to hold images
 		for i in range(self.max_img):
 			## add scatter plot item
-			v = self.w.addViewBox(row=i*2, col=1, lockAspect=True, enableMouse=True)
+			v = self.w.addViewBox(row=i*2, col=1, lockAspect=True, enableMouse=False)
 			## button area, histo's button area has draw curve function
 			if i == 1:
 				ba = ButtonArea(curve=True)
@@ -182,6 +184,7 @@ class ImageBar(QtGui.QWidget):
 		## button for histo
 		self.cells[1].button_area.buttons['curve'].clicked.connect(self.draw_curve_clicked)
 		self.cells[1].button_area.colorWidget.buttons['ok'].clicked.connect(self.color_ok_clicked)
+		self.cells[1].button_area.buttons['color'].clicked.connect(self.color_clicked)
 		## setup menus
 		self.set_menu()
 
@@ -197,8 +200,15 @@ class ImageBar(QtGui.QWidget):
 		elif path:
 			for i, fname in enumerate(path):
 				arr = self.loader.load(str(fname))
-				self.add_image(i, arr)
-				self.state['ready'] = {}
+				img = UiImageItem()
+				self.cells[i].v.addItem(img)
+				self.cells[i].image = img
+				img.setImage(arr)
+				img.setRotation(-90)
+				self.cells[i].open_action.triggered.connect(img.load_image_clicked)
+				img.sigLoadImageRequested.connect(self.load_image_requested)
+				#self.add_image(i, arr)
+				#self.state['ready'] = {}
 
 
 	def set_menu(self):
@@ -269,17 +279,20 @@ class ImageBar(QtGui.QWidget):
 		img.sigLoadImageRequested.connect(self.load_image_requested)
 		img.sigCurveUpdated.connect(self.curve_updated)
 		#img.sigDragTriggered.connect(self.cells[id].pathplot.add_draw_point)
-		self.cells[id].open_action.triggered.connect(img.load_imgae_clicked)
+		self.cells[id].open_action.triggered.connect(img.load_image_clicked)
 		## clear existed points
 		self.clear_point(id=id)
 		## reset button area
 		self.reset_button_area(id)
 		## send signal to inform imagePanel
 		self.sigImageLoaded.emit((id, arr))
-		
+		## update config file
+		self.conf.configs['original_array'][id] = arr
+
 		if id == 0 and id not in self.state['ready']:
 			self.sigEnableHeatmapButton.emit(self)
 
+		self.cells[id].v.setMouseEnabled(True, True)
 		self.state['ready'][id] = True
 
 		## just test...
@@ -418,7 +431,9 @@ class ImageBar(QtGui.QWidget):
 		print "save points"
 		with open("./vertices.txt", "w") as outfile:
 			outfile.write(str(self.vl.vlist[0]) + '\n')
-			outfile.write(str(self.vl.vlist[1]))
+			outfile.write(str(self.vl.vlist[1]) + '\n')
+			outfile.write(str(self.cells[0].contour.tolist()) + '\n')
+			outfile.write(str(self.cells[1].contour.tolist()))
 			outfile.close()
 
 ####################################################################################
@@ -484,6 +499,10 @@ class ImageBar(QtGui.QWidget):
 				self.select_contour(k)
 			self.state['doingContour'] = False
 
+	def color_clicked(self):
+		if self.cells[1].image.state_flag['isPaint']:
+			self.cells[1].button_area.colorWidget.show()
+
 	def draw_curve_clicked(self):
 		## slot method for histo's buttonItem
 		if 1 in self.state['ready']:
@@ -491,24 +510,28 @@ class ImageBar(QtGui.QWidget):
 				self.reset_button_area(1) ## reset other buttons
 				self.cells[1].image.state_flag['isPaint'] = False
 				self.cells[1].button_area.buttons['curve'].setOpacity(0.4)
+				self.cells[1].button_area.buttons['color'].setOpacity(0.4)
 			else:
 				self.reset_button_area(1) ## reset other buttons
 				self.cells[1].image.state_flag['isPaint'] = True
 				self.cells[1].button_area.buttons['curve'].setOpacity(1)
+				self.cells[1].button_area.buttons['color'].setOpacity(1)
 
-	def reset_button_area(self, id):
+	def reset_button_area(self, k):
 		## lock button
-		self.cells[id].button_area.buttons['lock'].setOpacity(0.4)
-		self.state['locked'][id] = False
-		self.cells[id].v.setMouseEnabled(True, True)
+		self.cells[k].button_area.buttons['lock'].setOpacity(0.4)
+		self.state['locked'][k] = False
+		self.cells[k].v.setMouseEnabled(True, True)
 		## delete button
-		self.cells[id].button_area.buttons['del'].setOpacity(0.4)
-		self.state['delete'][id] = False
-		self.cells[id].image.state_flag['isDelete'] = False
+		self.cells[k].button_area.buttons['del'].setOpacity(0.4)
+		self.state['delete'][k] = False
+		self.cells[k].image.state_flag['isDelete'] = False
+		self.cells[k].button_area.buttons['contour'].setOpacity(1)
 		## curve button
-		if id == 1:
-			self.cells[id].button_area.buttons['curve'].setOpacity(0.4)
-			self.cells[id].image.state_flag['isPaint'] = False
+		if k == 1:
+			self.cells[k].button_area.buttons['curve'].setOpacity(0.4)
+			self.cells[k].image.state_flag['isPaint'] = False
+			self.cells[k].button_area.buttons['color'].setOpacity(0.4)
 
 	def delete_hover(self, (scatter, pts)):
 		## slot method for ScatterPlotItem's hoverEvent
@@ -541,14 +564,36 @@ class ImageBar(QtGui.QWidget):
 		## slot method for imageROI's sigCurveUpdated
 		## used to inform imagePanel
 		self.sigCurveChanged.emit(arr)
+		## update config()
+		curves = self.cells[1].image.curves
+		self.conf.configs['curves_params'] = []
+		for item in curves:
+			self.conf.configs['curves_params'].append( (item.track,item.curve_tense,item.pen_param) )
 
-###########################################################################3
+###########################################################################
+##  config file
+
+	def restore_config_file(self, fname):
+		if self.conf.configs['original_array'][0] != None:
+			self.add_image(0, self.conf.configs['original_array'][0])
+		if self.conf.configs['original_array'][1] != None:
+			self.add_image(1, self.conf.configs['original_array'][1])
+		for k in self.cells:
+			self.cells[k].contour = self.conf.configs['contour'][k]
+		self.vl = self.conf.configs['vl']
+		for k in self.vl.vlist:
+			for i, pos in enumerate(self.vl.vlist[k]):
+				self.draw_point(self.cells[k].image, pos, symbol=str(i+1))
+		self.cells[1].image.restore_curve_file(self.conf.configs['curves_params'])
+		#self.cells[1].image.update_curve()
+###########################################################################
 ## handling alignment
 
 	def select_contour(self, k):
 		ct = contourSelection.resize_segmentation(self.cells[k].image.original_array)
 		if isinstance(ct, np.ndarray):
 			self.cells[k].contour = ct
+			self.conf.configs['contour'][k] = ct
 			print "contour =", ct
 
 	def mode_changed(self, modename):
@@ -620,6 +665,13 @@ class ImageBar(QtGui.QWidget):
 				print "no enough vertices"
 				return
 			self.registrator.affine()
+
+		elif self.state['mode'] == 'projective':
+			if len(self.vl.vlist[0]) < 4 or len(self.vl.vlist[1]) < 4:
+				print "no enough vertices"
+				return
+			self.registrator.projective()
+			
 
 		elif self.state['mode'] == 'piecewise':
 			if len(self.vl.vlist[0]) < 4 or len(self.vl.vlist[1]) < 4:

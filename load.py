@@ -34,17 +34,17 @@ class ImageFileLoader(object):
 		pass
 
 	def mat_to_array(self, path):
-		int_ch = scipy.io.loadmat(path)
+		mat = scipy.io.loadmat(path)
 		arr_dict = {}
 		jet = plt.get_cmap('jet')
 		jet.set_under(color='k', alpha=0)
 		jet.set_over(color='k', alpha=0)
-		for key in int_ch:
+		for key in mat:
 			if key not in ['__header__', '__globals__', '__version__']:
-				arr_dict[key] = int_ch[key]
+				arr_dict[key] = mat[key]
 		for key in arr_dict:
 			arr_dict[key] = np.where(np.isnan(arr_dict[key]), -1, arr_dict[key])
-			cnorm = colors.Normalize(vmin=0.01,vmax=np.max(arr_dict[key]))
+			cnorm = colors.Normalize(vmin=0.01,vmax=max(0.01,np.max(arr_dict[key])))
 			scalarmap = cm.ScalarMappable(norm=cnorm, cmap=jet)
 			arr = scalarmap.to_rgba(arr_dict[key])
 			arr = arr * 255

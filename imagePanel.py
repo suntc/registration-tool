@@ -6,7 +6,9 @@ Created on 2016-07-10
 from imageROI import ImageROI
 from load import ImageFileLoader
 import align
+from buttonArea import ButtonArea
 import pyqtgraph as pg
+from skimage import transform as tf
 from PyQt4 import QtCore, QtGui
 import cv2
 import numpy as np
@@ -19,27 +21,40 @@ class ImagePanel(QtGui.QWidget):
 
 	"""
 	sigHeatmapLoaded = QtCore.Signal(object)
-	def __init__(self, layout, image_arrays=[]):
+	def __init__(self, layout, image_arrays=[], configs=None):
 		QtGui.QWidget.__init__(self)
 		self.w = layout
 		self.image_arrays = image_arrays
 		self.imroi = [] ## only used by send_back, considering remove this
 		self.images = {}
 		self.raw_array = {}
+		self.triangulation_array = None
+		self.warped_top_array = None
 		self.backActivated = False
 		self.state = {
 			'lastAlign' : None, ## 'rigid'/'affine'
 			'heatmapLoaded' : False,
 			'heatmapShown'	: False,
 			'lastHeatmap' : None,
+			'showTri' : True,
 		}
+		self.prev_region = [{'size':None, 'pos':None, 'angle':None}, {'size':None, 'pos':None, 'angle':None}]
 		self.affine_matrix = None
 		self.piecewise_param = None
+		self.projective_tform = None
 		self.v = self.w.addViewBox(row=0, col=0, lockAspect=True)
+		self.button_area = ButtonArea(parent=self, mode='panel')
+		self.w.addItem(self.button_area, row=1, col=0)
+		self.w.layout.setRowFixedHeight(1, 12.)
+
 		g = pg.GridItem()
 		self.v.addItem(g)
 		for i, arr in enumerate(self.image_arrays):
 			self.add_image(arr)
+
+		## signals
+		self.button_area.buttons['restore'].clicked.connect(self.restore_alignment)
+		self.button_area.buttons['tri'].clicked.connect(self.triangulation_requested)
 		
 	def image_loaded(self, (id, arr)):
 		## slot method for imageBar's sigImageLoaded
@@ -50,7 +65,11 @@ class ImagePanel(QtGui.QWidget):
 			self.state['heatmapLoaded'] = False
 			self.state['heatmapShown'] = False
 			self.state['lastHeatmap'] = None
-
+		## signal
+		if id == 0:
+			self.images[id].sigRegionChanged.connect(self.image_top_changed)
+		else:
+			self.images[id].sigRegionChanged.connect(self.image_bottom_changed)
 
 	def transform_requested(self, (scale, angle, tx, ty)):
 		## slot method for sigTransformRequested
@@ -89,6 +108,15 @@ class ImagePanel(QtGui.QWidget):
 
 	def piecewise_requested(self, (fp, tp, tri)):
 		shape = self.raw_array[1].shape
+		'''
+		polys = []
+		for t in tri:
+			polys.append(np.array(np.dstack((fp[:,t][1],fp[:,t][0]))[0], dtype=np.int32))
+		cv2.polylines(self.raw_array[0], polys, True, [0,0,255,255], 2)
+		from PIL import Image
+		img = Image.fromarray(self.raw_array[0])
+		img.show()
+		'''
 		nphoto = align.pw_affine(self.raw_array[0],self.raw_array[1],fp,tp,tri)
 		self.images[0].setAngle(-90)
 		self.images[0].setPos((0, 0))
@@ -99,11 +127,43 @@ class ImagePanel(QtGui.QWidget):
 		self.images[1].set_alpha(0.5 * 255)
 		self.images[0].do_scale(shape[1], shape[0])
 		self.images[1].do_scale(shape[1], shape[0])
+		## create triangulation image
+		self.triangulation_array = nphoto.copy()
+		polys = []
+		for t in tri:
+			polys.append(np.array(np.dstack((tp[:,t][1],tp[:,t][0]))[0], dtype=np.int32))
+		cv2.polylines(self.triangulation_array, polys, True, [0,0,255,255], 2)
+		#cv2.imshow('img',self.triangulation_array)
+		#cv2.waitKey(0)
+		'''
+		self.images[0].setAngle(-90)
+		self.images[0].setPos((0, 0))
+		self.images[0].set_image(self.triangulation_array)
+		self.images[0].set_alpha(0.5 * 255)
+		'''
 		## save state
 		self.state['lastAlign'] = 'piecewise'
 		self.piecewise_param = (fp, tp, tri)
+		self.warped_top_array = nphoto
 
-		
+	def projective_requested(self, (tform)):
+		print "imagePanel: projective_requested"
+		shape = self.raw_array[1].shape
+		nphoto = tf.warp(self.raw_array[0], tform, output_shape=(shape[0], shape[1]))
+		#cv2.imshow('img', nphoto)
+		#cv2.waitKey(0)
+		self.images[0].setAngle(-90)
+		self.images[0].setPos((0, 0))
+		self.images[0].set_image(nphoto)
+		self.images[0].do_scale(shape[1], shape[0])
+		self.images[0].set_alpha(0.5 * 255)
+		self.images[1].setAngle(-90)
+		self.images[1].setPos((0, 0))
+		self.images[1].set_alpha(0.5 * 255)
+		self.images[1].do_scale(shape[1], shape[0])
+		## for heatmap
+		self.state['lastAlign'] = 'projective'
+		self.projective_tform = tform
 
 	def add_image(self, id, arr):
 		if id not in self.images:
@@ -202,9 +262,13 @@ class ImagePanel(QtGui.QWidget):
 			return
 		self.state['lastHeatmap'] = key
 		if self.state['lastAlign'] == 'affine':
-			self.images[0].show_heatmap(enable=True, key=key, affine=self.affine_matrix)
+			self.images[0].show_heatmap(enable=True, key=key, mode='affine', param=self.affine_matrix)
+		elif self.state['lastAlign'] == 'piecewise':
+			self.images[0].show_heatmap(enable=True, key=key, mode='piecewise', param=self.piecewise_param)
+		elif self.state['lastAlign'] == 'projective':
+			self.images[0].show_heatmap(enable=True, key=key, mode='projective', param=self.projective_tform)
 		else:
-			self.images[0].show_heatmap(enable=True, key=key, affine=None)
+			self.images[0].show_heatmap(enable=True, key=key, mode=None)
 
 	def curve_changed(self, (arr, curve_arr)):
 		## slot for sigCurveChanged
@@ -217,4 +281,54 @@ class ImagePanel(QtGui.QWidget):
 		#self.images[1].set_alpha(self.images[1].prev_alpha)
 		self.images[1].set_alpha(prev_alpha)
 		print "right set alpha =", self.images[1].prev_alpha
-		
+
+################################################################
+## button area
+
+	def restore_alignment(self):
+		if 0 in self.images:
+			self.images[0].setPos((0, 0))
+			self.images[0].setAngle(-90)
+			if self.state['lastAlign'] == None:
+				self.images[0].do_scale(self.raw_array[0].shape[1], self.raw_array[0].shape[0])
+			else:
+				self.images[0].do_scale(self.raw_array[1].shape[1], self.raw_array[1].shape[0])
+			#self.images[0].set_alpha(0.5 * 255)
+		if 1 in self.images:
+			self.images[1].setPos((0, 0))
+			self.images[1].setAngle(-90)
+			#self.images[1].set_alpha(0.5 * 255)
+			self.images[1].do_scale(self.raw_array[1].shape[1], self.raw_array[1].shape[0])
+
+	def triangulation_requested(self):
+		if self.state['lastAlign'] == 'piecewise' and self.triangulation_array != None:
+			if self.state['showTri']:
+				self.button_area.buttons['tri'].setOpacity(0.4)
+				alpha = self.images[0].prev_alpha
+				self.images[0].set_image(self.warped_top_array)
+				self.state['showTri'] = False
+			else:
+				self.button_area.buttons['tri'].setOpacity(1)
+				alpha = self.images[0].prev_alpha
+				self.images[0].set_image(self.triangulation_array)
+				self.state['showTri'] = True
+			s = self.images[0].getState()
+			self.images[0].do_scale(int(s['size'][1]), int(s['size'][0]))
+			self.images[0].set_alpha(alpha)
+			self.images[0].setSize([int(s['size'][0]), int(s['size'][1])])
+
+
+################################################################
+
+	def image_top_changed(self):
+		## slot
+		#print "top changed ", self.images[0].state_flag['isDrag']
+		states = self.images[0].state
+		bs = self.images[1].state
+		#self.images[1].setAngle(bs['angle'] + states['angle']-self.prev_region[0]['angle'])
+		self.prev_region[0] = self.images[0].saveState()
+
+	def image_bottom_changed(self):
+		## slot
+		#print "bottom changed", self.images[1].state_flag['isDrag']
+		self.prev_region[1] = self.images[1].saveState()

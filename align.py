@@ -77,7 +77,7 @@ def pw_affine(fromim,toim,fp,tp,tri):
         fp = from points in hom. coordinates
         tp = to points in hom.  coordinates
         tri = triangulation
-        corrdinates are in (y, x) form    
+        tp, fp's corrdinates are in (y, x) form    
     """
 
     im = toim.copy()

@@ -102,7 +102,8 @@ class UiImageItem(ImageItem):
 				self.image[ts] += src
 			else:
 				raise Exception("Unknown draw mode '%s'" % self.draw_mode)
-			self.updateImage()
+		self.updateImage()
+			
 
 	'''
 	def draw_at(self, pos, ev=None):
@@ -170,6 +171,8 @@ class UiImageItem(ImageItem):
 			self.sigAddVertexRequested.emit((self, ev.pos()))
 		ImageItem.mouseClickEvent(self, ev)
 	
-	def load_imgae_clicked(self, item):
-		self.sigLoadImageRequested.emit(self)
+
 	'''
+	def load_image_clicked(self, item):
+		self.sigLoadImageRequested.emit(self)
+	
